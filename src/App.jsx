@@ -1,540 +1,758 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const SPORT_ICONS = {
-  swim: "🏊",
-  run: "🏃",
-  bike: "🚴",
-  lift: "🏋️",
-  yoga: "🧘",
-  rest: "😴",
-  cross: "⚡",
-  drill: "🎯",
+  swim: "🏊", run: "🏃", bike: "🚴", lift: "🏋️",
+  yoga: "🧘", rest: "😴", cross: "⚡", drill: "🎯",
 };
-
 const SPORT_COLORS = {
-  swim: "#00d4ff",
-  run: "#ff6b35",
-  bike: "#a8ff3e",
-  lift: "#ff3e9d",
-  yoga: "#c084fc",
-  rest: "#4ade80",
-  cross: "#fbbf24",
-  drill: "#f87171",
+  swim: "#00d4ff", run: "#ff6b35", bike: "#a8ff3e", lift: "#ff3e9d",
+  yoga: "#c084fc", rest: "#4ade80", cross: "#fbbf24", drill: "#f87171",
 };
-
-const INITIAL_CYCLES = [
-  {
-    id: "c1",
-    name: "Base Build — Spring",
-    status: "active",
-    weeks: 4,
-    startDate: "2026-04-14",
-    sport: "swim",
-    notes: "Focus on aerobic base. Long slow distance, drills every session.",
-    days: [
-      { day: "Mon", sport: "swim", title: "Endurance Set", distance: "4000m", intensity: "Z2", notes: "4×1000 on 1:20/100" },
-      { day: "Tue", sport: "run", title: "Easy Run", distance: "6km", intensity: "Z1", notes: "Recovery pace, flat route" },
-      { day: "Wed", sport: "swim", title: "Drill Focus", distance: "3000m", intensity: "Z1", notes: "Catch-up, fingertip drag, sculling" },
-      { day: "Thu", sport: "lift", title: "Strength A", distance: "", intensity: "Mod", notes: "Pull: lat pull, rows, core" },
-      { day: "Fri", sport: "swim", title: "Threshold", distance: "3500m", intensity: "Z3", notes: "10×200 on 3:00" },
-      { day: "Sat", sport: "run", title: "Long Run", distance: "12km", intensity: "Z2", notes: "Aerobic long effort" },
-      { day: "Sun", sport: "rest", title: "Rest / Mobility", distance: "", intensity: "", notes: "Foam roll, stretch 20min" },
-    ],
-  },
-];
-
-const DRAFT_CYCLES = [
-  {
-    id: "d1",
-    name: "Taper Week",
-    sport: "swim",
-    notes: "Pre-meet taper. Cut volume 40%, maintain intensity.",
-    days: [
-      { day: "Mon", sport: "swim", title: "Easy Swim", distance: "2000m", intensity: "Z1", notes: "Feel the water" },
-      { day: "Tue", sport: "run", title: "Short Shakeout", distance: "3km", intensity: "Z1", notes: "" },
-      { day: "Wed", sport: "swim", title: "Race Pace", distance: "2500m", intensity: "Z4", notes: "Short race pace reps" },
-      { day: "Thu", sport: "rest", title: "Rest", distance: "", intensity: "", notes: "" },
-      { day: "Fri", sport: "swim", title: "Activation", distance: "1500m", intensity: "Z2", notes: "Warm up for tomorrow" },
-      { day: "Sat", sport: "swim", title: "RACE DAY", distance: "", intensity: "MAX", notes: "🏆 Competition" },
-      { day: "Sun", sport: "rest", title: "Recovery", distance: "", intensity: "", notes: "Sleep, eat, reflect" },
-    ],
-  },
-];
-
-const PAST_CYCLES = [
-  {
-    id: "p1",
-    name: "Winter Foundation",
-    status: "complete",
-    weeks: 6,
-    startDate: "2026-01-06",
-    sport: "swim",
-    notes: "Rebuilt base after holiday break.",
-    days: [],
-    summary: { totalSessions: 36, swimKm: 98, runKm: 45, topSet: "20×100 on 1:30" },
-  },
-  {
-    id: "p2",
-    name: "Speed Block",
-    status: "complete",
-    weeks: 3,
-    startDate: "2026-03-02",
-    sport: "swim",
-    notes: "High intensity, max quality work.",
-    days: [],
-    summary: { totalSessions: 21, swimKm: 52, runKm: 18, topSet: "30×50 sprint" },
-  },
-];
-
 const DAYS_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function getTodayDay() {
-  const d = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  return d[new Date().getDay()];
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
+}
+function blankSession(sport = "swim") {
+  return {
+    id: `s${Date.now()}${Math.random()}`, sport, title: "", distance: "", intensity: "", notes: "",
+    intervals: [], // array of {id, label, duration, reps, color}
+  };
+}
+function blankInterval(color = "#00d4ff") {
+  return { id: `i${Date.now()}${Math.random()}`, label: "", duration: 60, reps: 1, color };
+}
+function useLocalStorage(key, initial) {
+  const [val, setVal] = useState(() => {
+    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : initial; }
+    catch { return initial; }
+  });
+  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }, [key, val]);
+  return [val, setVal];
 }
 
-export default function App() {
-  const [tab, setTab] = useState("today");
-  const [cycles, setCycles] = useState(INITIAL_CYCLES);
-  const [drafts, setDrafts] = useState(DRAFT_CYCLES);
-  const [past] = useState(PAST_CYCLES);
-  const [selectedCycle, setSelectedCycle] = useState(null);
-  const [editingDraft, setEditingDraft] = useState(null);
-  const [modal, setModal] = useState(null); // { type, data }
-  const [newCycleFlow, setNewCycleFlow] = useState(false);
+// ── DEFAULT DATA ──────────────────────────────────────────────────────────────
+const DEFAULT_CYCLES = [{
+  id: "c1", name: "Base Build — Spring", status: "active",
+  weeks: 4, startDate: "2026-04-14", sport: "swim",
+  notes: "Focus on aerobic base. Long slow distance, drills every session.",
+  days: [
+    { day: "Mon", sessions: [
+      { id: "s1", sport: "swim", title: "Morning Endurance", distance: "4000m", intensity: "Z2",
+        notes: "4×1000 on 1:20/100",
+        intervals: [
+          { id: "i1", label: "Warm Up", duration: 600, reps: 1, color: "#4ade80" },
+          { id: "i2", label: "1000m Effort", duration: 80, reps: 4, color: "#00d4ff" },
+          { id: "i3", label: "Rest", duration: 30, reps: 4, color: "#fbbf24" },
+          { id: "i4", label: "Cool Down", duration: 300, reps: 1, color: "#c084fc" },
+        ]},
+      { id: "s2", sport: "lift", title: "Afternoon Strength", distance: "", intensity: "Mod",
+        notes: "Pull: lat pull, rows, core", intervals: [] },
+    ]},
+    { day: "Tue", sessions: [
+      { id: "s3", sport: "run", title: "Easy Run", distance: "6km", intensity: "Z1",
+        notes: "Recovery pace, flat route",
+        intervals: [
+          { id: "i5", label: "Easy Run", duration: 2400, reps: 1, color: "#ff6b35" },
+        ]},
+    ]},
+    { day: "Wed", sessions: [
+      { id: "s4", sport: "swim", title: "AM Drill Focus", distance: "3000m", intensity: "Z1",
+        notes: "Catch-up, fingertip drag, sculling",
+        intervals: [
+          { id: "i6", label: "Warm Up", duration: 300, reps: 1, color: "#4ade80" },
+          { id: "i7", label: "Drill", duration: 120, reps: 6, color: "#f87171" },
+          { id: "i8", label: "Rest", duration: 20, reps: 6, color: "#fbbf24" },
+          { id: "i9", label: "Cool Down", duration: 200, reps: 1, color: "#c084fc" },
+        ]},
+      { id: "s5", sport: "yoga", title: "PM Mobility", distance: "", intensity: "Low",
+        notes: "Hip flexors, thoracic spine", intervals: [] },
+    ]},
+    { day: "Thu", sessions: [
+      { id: "s6", sport: "lift", title: "Strength A", distance: "", intensity: "Mod",
+        notes: "Push: bench, shoulder press, triceps", intervals: [] },
+    ]},
+    { day: "Fri", sessions: [
+      { id: "s7", sport: "swim", title: "Threshold AM", distance: "3500m", intensity: "Z3",
+        notes: "10×200 on 3:00",
+        intervals: [
+          { id: "i10", label: "Warm Up", duration: 480, reps: 1, color: "#4ade80" },
+          { id: "i11", label: "200m Hard", duration: 180, reps: 10, color: "#00d4ff" },
+          { id: "i12", label: "Rest", duration: 30, reps: 10, color: "#fbbf24" },
+          { id: "i13", label: "Cool Down", duration: 300, reps: 1, color: "#c084fc" },
+        ]},
+      { id: "s8", sport: "run", title: "Shakeout PM", distance: "3km", intensity: "Z1",
+        notes: "Easy legs",
+        intervals: [{ id: "i14", label: "Easy Jog", duration: 900, reps: 1, color: "#ff6b35" }] },
+    ]},
+    { day: "Sat", sessions: [
+      { id: "s9", sport: "run", title: "Long Run", distance: "12km", intensity: "Z2",
+        notes: "Aerobic long effort",
+        intervals: [{ id: "i15", label: "Long Run", duration: 4200, reps: 1, color: "#ff6b35" }] },
+    ]},
+    { day: "Sun", sessions: [
+      { id: "s10", sport: "rest", title: "Rest / Mobility", distance: "", intensity: "",
+        notes: "Foam roll, stretch 20min", intervals: [] },
+    ]},
+  ],
+}];
 
-  const activeCycle = cycles.find((c) => c.status === "active") || null;
-  const todayDay = getTodayDay();
-  const todayWorkout = activeCycle?.days?.find((d) => d.day === todayDay);
+const DEFAULT_DRAFTS = [{
+  id: "d1", name: "Taper Week", sport: "swim",
+  notes: "Pre-meet taper. Cut volume 40%, maintain intensity.",
+  days: [
+    { day: "Mon", sessions: [{ id: "sd1", sport: "swim", title: "Easy Swim", distance: "2000m", intensity: "Z1", notes: "", intervals: [{ id: "di1", label: "Easy Swim", duration: 1200, reps: 1, color: "#00d4ff" }] }]},
+    { day: "Tue", sessions: [{ id: "sd2", sport: "run", title: "Short Shakeout", distance: "3km", intensity: "Z1", notes: "", intervals: [] }]},
+    { day: "Wed", sessions: [{ id: "sd3", sport: "swim", title: "Race Pace", distance: "2500m", intensity: "Z4", notes: "Short race pace reps", intervals: [{ id: "di2", label: "Race Pace 50", duration: 35, reps: 10, color: "#f87171" }, { id: "di3", label: "Rest", duration: 25, reps: 10, color: "#fbbf24" }] }]},
+    { day: "Thu", sessions: [{ id: "sd4", sport: "rest", title: "Rest", distance: "", intensity: "", notes: "", intervals: [] }]},
+    { day: "Fri", sessions: [{ id: "sd5", sport: "swim", title: "Activation", distance: "1500m", intensity: "Z2", notes: "", intervals: [] }]},
+    { day: "Sat", sessions: [{ id: "sd6", sport: "swim", title: "RACE DAY 🏆", distance: "", intensity: "MAX", notes: "Competition", intervals: [] }]},
+    { day: "Sun", sessions: [{ id: "sd7", sport: "rest", title: "Recovery", distance: "", intensity: "", notes: "Sleep, eat, reflect", intervals: [] }]},
+  ],
+}];
 
-  // --- STYLES ---
-  const s = {
-    root: {
-      fontFamily: "'Barlow Condensed', sans-serif",
-      background: "#080e1a",
-      minHeight: "100vh",
-      color: "#e8f4f8",
-      maxWidth: 430,
-      margin: "0 auto",
-      position: "relative",
-      overflow: "hidden",
-    },
-    header: {
-      padding: "20px 20px 10px",
-      borderBottom: "1px solid #1a2a3a",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    logo: {
-      fontSize: 22,
-      fontWeight: 800,
-      letterSpacing: 2,
-      color: "#00d4ff",
-      textTransform: "uppercase",
-    },
-    dateStr: { fontSize: 12, color: "#4a7a8a", letterSpacing: 1 },
-    nav: {
-      display: "flex",
-      borderBottom: "1px solid #1a2a3a",
-      background: "#080e1a",
-      position: "sticky",
-      top: 0,
-      zIndex: 10,
-    },
-    navBtn: (active) => ({
-      flex: 1,
-      padding: "12px 2px",
-      background: "none",
-      border: "none",
-      color: active ? "#00d4ff" : "#3a5a6a",
-      fontFamily: "'Barlow Condensed', sans-serif",
-      fontSize: 11,
-      fontWeight: 700,
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      cursor: "pointer",
-      borderBottom: active ? "2px solid #00d4ff" : "2px solid transparent",
-      transition: "all 0.2s",
-    }),
-    page: { padding: "16px 16px 100px", overflowY: "auto" },
-    card: {
-      background: "#0d1824",
-      border: "1px solid #1a2a3a",
-      borderRadius: 12,
-      padding: 16,
-      marginBottom: 12,
-    },
-    cardAccent: (color) => ({
-      background: "#0d1824",
-      border: `1px solid ${color}40`,
-      borderLeft: `3px solid ${color}`,
-      borderRadius: 12,
-      padding: 16,
-      marginBottom: 12,
-    }),
-    label: {
-      fontSize: 10,
-      letterSpacing: 2,
-      color: "#3a6a7a",
-      textTransform: "uppercase",
-      marginBottom: 4,
-    },
-    h1: { fontSize: 28, fontWeight: 800, letterSpacing: 1, lineHeight: 1.1 },
+const DEFAULT_PAST = [
+  { id: "p1", name: "Winter Foundation", status: "complete", weeks: 6, startDate: "2026-01-06", sport: "swim", notes: "Rebuilt base.", days: [], summary: { totalSessions: 36, swimKm: 98, runKm: 45, topSet: "20×100 on 1:30" }},
+  { id: "p2", name: "Speed Block", status: "complete", weeks: 3, startDate: "2026-03-02", sport: "swim", notes: "Max quality.", days: [], summary: { totalSessions: 21, swimKm: 52, runKm: 18, topSet: "30×50 sprint" }},
+];
+
+// ── SHARED STYLES ─────────────────────────────────────────────────────────────
+function makeStyles() {
+  return {
+    card: { background: "#0d1824", border: "1px solid #1a2a3a", borderRadius: 12, padding: 16, marginBottom: 12 },
+    cardAccent: (c) => ({ background: "#0d1824", border: `1px solid ${c}40`, borderLeft: `3px solid ${c}`, borderRadius: 12, padding: 16, marginBottom: 10 }),
+    label: { fontSize: 10, letterSpacing: 2, color: "#3a6a7a", textTransform: "uppercase", marginBottom: 4 },
     h2: { fontSize: 20, fontWeight: 700, letterSpacing: 0.5 },
     h3: { fontSize: 16, fontWeight: 700 },
     sub: { fontSize: 13, color: "#4a8a9a", lineHeight: 1.4 },
-    pill: (color) => ({
-      display: "inline-block",
-      background: `${color}22`,
-      color,
-      border: `1px solid ${color}55`,
-      borderRadius: 20,
-      padding: "2px 10px",
-      fontSize: 11,
-      fontWeight: 700,
-      letterSpacing: 1,
-    }),
-    btn: (variant = "primary") => ({
-      display: "block",
-      width: "100%",
-      padding: "13px 20px",
-      borderRadius: 10,
-      border: variant === "primary" ? "none" : "1px solid #1a3a4a",
-      background:
-        variant === "primary"
-          ? "linear-gradient(135deg, #00d4ff, #0090b0)"
-          : "#0d1824",
-      color: variant === "primary" ? "#000" : "#00d4ff",
-      fontFamily: "'Barlow Condensed', sans-serif",
-      fontSize: 14,
-      fontWeight: 700,
-      letterSpacing: 2,
-      textTransform: "uppercase",
-      cursor: "pointer",
-      marginBottom: 10,
-    }),
-    btnSm: (color = "#00d4ff") => ({
-      padding: "7px 14px",
-      borderRadius: 8,
-      border: `1px solid ${color}55`,
-      background: `${color}15`,
-      color,
-      fontFamily: "'Barlow Condensed', sans-serif",
-      fontSize: 12,
-      fontWeight: 700,
-      letterSpacing: 1,
-      cursor: "pointer",
-    }),
+    pill: (c) => ({ display: "inline-block", background: `${c}22`, color: c, border: `1px solid ${c}55`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1 }),
+    btn: (v = "primary") => ({ display: "block", width: "100%", padding: "13px 20px", borderRadius: 10, border: v === "primary" ? "none" : "1px solid #1a3a4a", background: v === "primary" ? "linear-gradient(135deg,#00d4ff,#0090b0)" : "#0d1824", color: v === "primary" ? "#000" : "#00d4ff", fontFamily: "'Barlow Condensed',sans-serif", fontSize: 14, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", cursor: "pointer", marginBottom: 10 }),
+    btnSm: (c = "#00d4ff") => ({ padding: "7px 14px", borderRadius: 8, border: `1px solid ${c}55`, background: `${c}15`, color: c, fontFamily: "'Barlow Condensed',sans-serif", fontSize: 12, fontWeight: 700, letterSpacing: 1, cursor: "pointer" }),
+    btnTiny: (c = "#00d4ff") => ({ padding: "4px 10px", borderRadius: 6, border: `1px solid ${c}44`, background: `${c}11`, color: c, fontFamily: "'Barlow Condensed',sans-serif", fontSize: 11, fontWeight: 700, cursor: "pointer" }),
     row: { display: "flex", alignItems: "center", gap: 10 },
-    spaceBetween: { display: "flex", alignItems: "center", justifyContent: "space-between" },
-    dayRow: (isToday, sport) => ({
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "10px 12px",
-      borderRadius: 8,
-      background: isToday ? `${SPORT_COLORS[sport] || "#00d4ff"}15` : "#0a131d",
-      border: isToday ? `1px solid ${SPORT_COLORS[sport] || "#00d4ff"}40` : "1px solid transparent",
-      marginBottom: 6,
-      cursor: "pointer",
-      transition: "all 0.15s",
-    }),
-    input: {
-      width: "100%",
-      background: "#0a131d",
-      border: "1px solid #1a3a4a",
-      borderRadius: 8,
-      padding: "10px 12px",
-      color: "#e8f4f8",
-      fontFamily: "'Barlow Condensed', sans-serif",
-      fontSize: 14,
-      marginBottom: 10,
-      boxSizing: "border-box",
-    },
-    select: {
-      width: "100%",
-      background: "#0a131d",
-      border: "1px solid #1a3a4a",
-      borderRadius: 8,
-      padding: "10px 12px",
-      color: "#e8f4f8",
-      fontFamily: "'Barlow Condensed', sans-serif",
-      fontSize: 14,
-      marginBottom: 10,
-      boxSizing: "border-box",
-    },
-    textarea: {
-      width: "100%",
-      background: "#0a131d",
-      border: "1px solid #1a3a4a",
-      borderRadius: 8,
-      padding: "10px 12px",
-      color: "#e8f4f8",
-      fontFamily: "'Barlow Condensed', sans-serif",
-      fontSize: 13,
-      marginBottom: 10,
-      boxSizing: "border-box",
-      resize: "vertical",
-      minHeight: 60,
-    },
-    overlay: {
-      position: "fixed",
-      inset: 0,
-      background: "#000000cc",
-      zIndex: 50,
-      display: "flex",
-      alignItems: "flex-end",
-      maxWidth: 430,
-      margin: "0 auto",
-    },
-    sheet: {
-      background: "#0d1824",
-      border: "1px solid #1a2a3a",
-      borderRadius: "20px 20px 0 0",
-      padding: 20,
-      width: "100%",
-      maxHeight: "85vh",
-      overflowY: "auto",
-    },
-    grip: {
-      width: 40,
-      height: 4,
-      background: "#1a3a4a",
-      borderRadius: 2,
-      margin: "0 auto 16px",
-    },
+    sb: { display: "flex", alignItems: "center", justifyContent: "space-between" },
+    input: { width: "100%", background: "#0a131d", border: "1px solid #1a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8f4f8", fontFamily: "'Barlow Condensed',sans-serif", fontSize: 14, marginBottom: 8, boxSizing: "border-box" },
+    select: { width: "100%", background: "#0a131d", border: "1px solid #1a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8f4f8", fontFamily: "'Barlow Condensed',sans-serif", fontSize: 14, marginBottom: 8, boxSizing: "border-box" },
+    textarea: { width: "100%", background: "#0a131d", border: "1px solid #1a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8f4f8", fontFamily: "'Barlow Condensed',sans-serif", fontSize: 13, marginBottom: 8, boxSizing: "border-box", resize: "vertical", minHeight: 56 },
+    overlay: { position: "fixed", inset: 0, background: "#000000cc", zIndex: 50, display: "flex", alignItems: "flex-end", maxWidth: 430, margin: "0 auto" },
+    sheet: { background: "#0d1824", border: "1px solid #1a2a3a", borderRadius: "20px 20px 0 0", padding: 20, width: "100%", maxHeight: "88vh", overflowY: "auto" },
+    grip: { width: 40, height: 4, background: "#1a3a4a", borderRadius: 2, margin: "0 auto 16px" },
+    page: { padding: "16px 16px 100px", overflowY: "auto" },
+  };
+}
+
+function fmt(s) {
+  const m = Math.floor(s / 60), sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+// ── INTERVAL TIMER ────────────────────────────────────────────────────────────
+function IntervalTimer({ cycles }) {
+  const [customIntervals, setCustomIntervals] = useLocalStorage("laplog_intervals", [
+    { id: "ci1", label: "Warm Up", duration: 600, reps: 1, color: "#4ade80" },
+    { id: "ci2", label: "Hard Effort", duration: 60, reps: 10, color: "#00d4ff" },
+    { id: "ci3", label: "Rest", duration: 20, reps: 10, color: "#ff6b35" },
+    { id: "ci4", label: "Cool Down", duration: 300, reps: 1, color: "#c084fc" },
+  ]);
+
+  const [activeIntervals, setActiveIntervals] = useState(customIntervals);
+  const [loadedFrom, setLoadedFrom] = useState(null); // { sessionTitle, day }
+  const [showPicker, setShowPicker] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [done, setDone] = useState(false);
+  const tickRef = useRef(null);
+  const s = makeStyles();
+
+  const steps = activeIntervals.flatMap((iv) =>
+    Array.from({ length: Math.max(1, iv.reps) }, (_, i) => ({
+      label: iv.label, duration: iv.duration, color: iv.color,
+      rep: i + 1, totalReps: iv.reps,
+    }))
+  );
+  const totalSteps = steps.length;
+  const cur = steps[currentStep] || null;
+  const progress = cur ? 1 - timeLeft / cur.duration : 0;
+  const circumference = 2 * Math.PI * 90;
+
+  const beep = useCallback((freqs = [880]) => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      freqs.forEach((freq, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.15);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+        o.start(ctx.currentTime + i * 0.15);
+        o.stop(ctx.currentTime + i * 0.15 + 0.4);
+      });
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!running || !cur) return;
+    if (timeLeft === 0) {
+      if (currentStep + 1 >= totalSteps) { setRunning(false); setDone(true); beep([523, 659, 784]); return; }
+      const next = currentStep + 1;
+      setCurrentStep(next); setTimeLeft(steps[next].duration); beep([880]); return;
+    }
+    tickRef.current = setTimeout(() => {
+      setTimeLeft((t) => t - 1);
+      if (timeLeft <= 4 && timeLeft > 1) beep([660]);
+    }, 1000);
+    return () => clearTimeout(tickRef.current);
+  }, [running, timeLeft, currentStep]);
+
+  const start = () => {
+    if (!steps.length) return;
+    setCurrentStep(0); setTimeLeft(steps[0].duration); setDone(false); setRunning(true); beep([880]);
+  };
+  const pause = () => setRunning((r) => !r);
+  const reset = () => { clearTimeout(tickRef.current); setRunning(false); setDone(false); setCurrentStep(0); setTimeLeft(0); };
+  const skip = () => {
+    if (currentStep + 1 >= totalSteps) { reset(); setDone(true); return; }
+    const next = currentStep + 1;
+    setCurrentStep(next); setTimeLeft(steps[next].duration); beep([880]);
   };
 
-  // ---- TODAY TAB ----
-  const TodayTab = () => (
-    <div style={s.page}>
-      <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
-      <div style={{ marginBottom: 20 }}>
-        <div style={s.label}>Today — {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>
-        {todayWorkout ? (
-          <div
-            style={{
-              ...s.cardAccent(SPORT_COLORS[todayWorkout.sport] || "#00d4ff"),
-              cursor: "pointer",
-            }}
-            onClick={() => setModal({ type: "workout", data: todayWorkout })}
-          >
-            <div style={s.spaceBetween}>
-              <div>
-                <div style={s.label}>{activeCycle?.name}</div>
-                <div style={{ ...s.h1, fontSize: 32 }}>
-                  {SPORT_ICONS[todayWorkout.sport]} {todayWorkout.title}
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                {todayWorkout.distance && (
-                  <div style={{ fontSize: 24, fontWeight: 800, color: SPORT_COLORS[todayWorkout.sport] }}>
-                    {todayWorkout.distance}
+  // Collect all sessions with intervals across all cycles
+  const allSessions = [];
+  cycles.forEach((cycle) => {
+    cycle.days?.forEach((day) => {
+      day.sessions?.forEach((sess) => {
+        if (sess.intervals && sess.intervals.length > 0) {
+          allSessions.push({ session: sess, day: day.day, cycleName: cycle.name });
+        }
+      });
+    });
+  });
+
+  const loadSession = (sess, day, cycleName) => {
+    setActiveIntervals(sess.intervals.map(iv => ({ ...iv })));
+    setLoadedFrom({ sessionTitle: sess.title, day, cycleName });
+    setShowPicker(false);
+    reset();
+  };
+
+  const useCustom = () => {
+    setActiveIntervals(customIntervals.map(iv => ({ ...iv })));
+    setLoadedFrom(null);
+    setShowPicker(false);
+    reset();
+  };
+
+  // Workout picker sheet
+  if (showPicker) {
+    return (
+      <div style={s.page}>
+        <div style={{ ...s.sb, marginBottom: 16 }}>
+          <div style={s.h2}>Load Workout</div>
+          <button style={s.btnSm("#f87171")} onClick={() => setShowPicker(false)}>Cancel</button>
+        </div>
+
+        <div style={{ ...s.sub, marginBottom: 16 }}>Pick a session to load its intervals into the timer.</div>
+
+        <button style={{ ...s.card, width: "100%", textAlign: "left", cursor: "pointer", border: "1px solid #00d4ff44", marginBottom: 10 }} onClick={useCustom}>
+          <div style={{ ...s.sb }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#00d4ff" }}>⚡ Custom Intervals</div>
+              <div style={{ fontSize: 12, color: "#4a7a8a", marginTop: 2 }}>Your manually configured intervals</div>
+            </div>
+            <div style={s.pill("#00d4ff")}>{customIntervals.length} steps</div>
+          </div>
+        </button>
+
+        {cycles.map((cycle) => {
+          const sessionsWithIntervals = [];
+          cycle.days?.forEach((day) => {
+            day.sessions?.forEach((sess) => {
+              if (sess.intervals && sess.intervals.length > 0) {
+                sessionsWithIntervals.push({ sess, day: day.day });
+              }
+            });
+          });
+          if (!sessionsWithIntervals.length) return null;
+          return (
+            <div key={cycle.id}>
+              <div style={{ ...s.label, marginTop: 12, marginBottom: 8 }}>{cycle.name}</div>
+              {sessionsWithIntervals.map(({ sess, day }) => {
+                const color = SPORT_COLORS[sess.sport] || "#00d4ff";
+                const totalTime = sess.intervals.reduce((a, iv) => a + iv.duration * iv.reps, 0);
+                const totalStepsCount = sess.intervals.reduce((a, iv) => a + iv.reps, 0);
+                return (
+                  <div key={sess.id} style={{ ...s.cardAccent(color), cursor: "pointer" }} onClick={() => loadSession(sess, day, cycle.name)}>
+                    <div style={s.sb}>
+                      <div style={s.row}>
+                        <span style={{ fontSize: 22 }}>{SPORT_ICONS[sess.sport]}</span>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>{sess.title}</div>
+                          <div style={{ fontSize: 11, color: "#4a7a8a", marginTop: 2 }}>{day} · {cycle.name}</div>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color }}>{fmt(totalTime)}</div>
+                        <div style={{ fontSize: 11, color: "#4a7a8a" }}>{totalStepsCount} steps</div>
+                      </div>
+                    </div>
+                    {/* interval preview pills */}
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
+                      {sess.intervals.map((iv) => (
+                        <div key={iv.id} style={{ background: `${iv.color}22`, color: iv.color, border: `1px solid ${iv.color}44`, borderRadius: 12, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>
+                          {iv.reps > 1 ? `${iv.reps}×` : ""}{iv.label} {fmt(iv.duration)}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                )}
-                {todayWorkout.intensity && (
-                  <div style={s.pill(SPORT_COLORS[todayWorkout.sport])}>{todayWorkout.intensity}</div>
-                )}
+                );
+              })}
+            </div>
+          );
+        })}
+
+        {allSessions.length === 0 && (
+          <div style={{ ...s.card, textAlign: "center", padding: 30, opacity: 0.6 }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>🏊</div>
+            <div style={{ fontSize: 14, color: "#4a7a8a" }}>No sessions have intervals yet. Edit a session and add intervals to it.</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Interval editor
+  if (editing && !running) {
+    const ivals = loadedFrom ? activeIntervals : customIntervals;
+    const setIvals = loadedFrom
+      ? (fn) => setActiveIntervals(typeof fn === "function" ? fn(activeIntervals) : fn)
+      : (fn) => {
+          const next = typeof fn === "function" ? fn(customIntervals) : fn;
+          setCustomIntervals(next);
+          setActiveIntervals(next);
+        };
+    return (
+      <div style={s.page}>
+        <div style={{ ...s.sb, marginBottom: 16 }}>
+          <div>
+            <div style={s.label}>{loadedFrom ? `${loadedFrom.sessionTitle}` : "Custom"}</div>
+            <div style={s.h2}>Edit Intervals</div>
+          </div>
+          <button style={s.btnSm()} onClick={() => setEditing(false)}>Done</button>
+        </div>
+        {ivals.map((iv) => (
+          <div key={iv.id} style={{ ...s.cardAccent(iv.color), padding: 14, marginBottom: 10 }}>
+            <div style={{ ...s.sb, marginBottom: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{iv.label || "(unnamed)"}</div>
+              <button style={s.btnTiny("#f87171")} onClick={() => setIvals((p) => p.filter((x) => x.id !== iv.id))}>✕ Remove</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <div style={s.label}>Label</div>
+                <input style={{ ...s.input, marginBottom: 0 }} value={iv.label} placeholder="e.g. Hard 200" onChange={(e) => setIvals((p) => p.map((x) => x.id === iv.id ? { ...x, label: e.target.value } : x))} />
+              </div>
+              <div>
+                <div style={s.label}>Reps</div>
+                <input type="number" min={1} style={{ ...s.input, marginBottom: 0 }} value={iv.reps} onChange={(e) => setIvals((p) => p.map((x) => x.id === iv.id ? { ...x, reps: parseInt(e.target.value) || 1 } : x))} />
+              </div>
+              <div>
+                <div style={s.label}>Duration (sec)</div>
+                <input type="number" min={1} style={{ ...s.input, marginBottom: 0 }} value={iv.duration} onChange={(e) => setIvals((p) => p.map((x) => x.id === iv.id ? { ...x, duration: parseInt(e.target.value) || 1 } : x))} />
+              </div>
+              <div>
+                <div style={s.label}>Color</div>
+                <input type="color" style={{ width: "100%", height: 38, background: "#0a131d", border: "1px solid #1a3a4a", borderRadius: 8, padding: 4, cursor: "pointer", boxSizing: "border-box" }} value={iv.color} onChange={(e) => setIvals((p) => p.map((x) => x.id === iv.id ? { ...x, color: e.target.value } : x))} />
               </div>
             </div>
-            {todayWorkout.notes && (
-              <div style={{ ...s.sub, marginTop: 10, color: "#7ab0bc" }}>{todayWorkout.notes}</div>
-            )}
-            <div style={{ marginTop: 12, ...s.label }}>Tap for full details →</div>
           </div>
-        ) : (
-          <div style={s.card}>
-            <div style={{ fontSize: 40, marginBottom: 8 }}>😴</div>
-            <div style={s.h2}>Rest Day</div>
-            <div style={s.sub}>No workout scheduled. Recover well.</div>
+        ))}
+        <button style={s.btn()} onClick={() => setIvals((p) => [...p, blankInterval()])}>+ Add Interval</button>
+        {loadedFrom && (
+          <button style={s.btn("secondary")} onClick={() => { setCustomIntervals(activeIntervals.map(iv => ({ ...iv }))); alert("Saved as custom!"); }}>
+            Save as Custom
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // LOCKED FULLSCREEN
+  if (locked && running && cur) {
+    const col = cur.color;
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#020810", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 100, userSelect: "none", touchAction: "none" }}>
+        <div style={{ position: "absolute", top: 24, right: 24, fontSize: 11, color: "#1a3a4a", letterSpacing: 2 }}>🔒 LOCKED</div>
+        <button style={{ position: "absolute", top: 20, left: 20, padding: "8px 16px", borderRadius: 20, border: `1px solid ${col}44`, background: `${col}11`, color: col, fontFamily: "'Barlow Condensed',sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: 2, cursor: "pointer" }}
+          onPointerDown={(e) => { const t = setTimeout(() => setLocked(false), 1500); e.currentTarget.addEventListener("pointerup", () => clearTimeout(t), { once: true }); }}>
+          HOLD TO UNLOCK
+        </button>
+
+        <div style={{ position: "relative", width: 260, height: 260, marginBottom: 28 }}>
+          <svg width="260" height="260" style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
+            <circle cx="130" cy="130" r="118" fill="none" stroke="#0d1824" strokeWidth="12" />
+            <circle cx="130" cy="130" r="118" fill="none" stroke={col} strokeWidth="12"
+              strokeDasharray={2 * Math.PI * 118} strokeDashoffset={2 * Math.PI * 118 * (1 - progress)}
+              strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.9s linear" }} />
+          </svg>
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ fontSize: 72, fontWeight: 900, color: col, lineHeight: 1, letterSpacing: -3 }}>{fmt(timeLeft)}</div>
+            <div style={{ fontSize: 13, color: "#2a5a6a", marginTop: 6 }}>{currentStep + 1} / {totalSteps}</div>
+          </div>
+        </div>
+
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: "#1a4a5a", letterSpacing: 3, marginBottom: 6 }}>NOW</div>
+          <div style={{ fontSize: 40, fontWeight: 900, color: "#e8f4f8", letterSpacing: 1 }}>{cur.label}</div>
+          {cur.totalReps > 1 && <div style={{ fontSize: 22, color: col, fontWeight: 700, marginTop: 6 }}>Rep {cur.rep} / {cur.totalReps}</div>}
+        </div>
+
+        {steps[currentStep + 1] && (
+          <div style={{ background: "#0a1520", borderRadius: 12, padding: "10px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: 10, color: "#1a4a5a", letterSpacing: 2 }}>NEXT</div>
+            <div style={{ fontSize: 20, color: steps[currentStep + 1].color, fontWeight: 700 }}>
+              {steps[currentStep + 1].label} · {fmt(steps[currentStep + 1].duration)}
+            </div>
+            {steps[currentStep + 1].totalReps > 1 && <div style={{ fontSize: 13, color: "#3a6a7a" }}>Rep {steps[currentStep + 1].rep}/{steps[currentStep + 1].totalReps}</div>}
+          </div>
+        )}
+
+        <div style={{ position: "absolute", bottom: 50, display: "flex", gap: 16 }}>
+          <button style={{ padding: "12px 24px", borderRadius: 10, border: `1px solid ${col}44`, background: `${col}11`, color: col, fontFamily: "'Barlow Condensed',sans-serif", fontSize: 13, fontWeight: 700, letterSpacing: 2, cursor: "pointer" }} onClick={pause}>{running ? "PAUSE" : "RESUME"}</button>
+          <button style={{ padding: "12px 24px", borderRadius: 10, border: "1px solid #fbbf2444", background: "#fbbf2411", color: "#fbbf24", fontFamily: "'Barlow Condensed',sans-serif", fontSize: 13, fontWeight: 700, letterSpacing: 2, cursor: "pointer" }} onClick={skip}>SKIP →</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={s.page}>
+      <div style={{ ...s.sb, marginBottom: 20 }}>
+        <div>
+          <div style={s.label}>Session Timer</div>
+          <div style={s.h2}>
+            {loadedFrom ? `🏊 ${loadedFrom.sessionTitle}` : "⚡ Custom Intervals"}
+          </div>
+          {loadedFrom && <div style={{ fontSize: 11, color: "#4a7a8a", marginTop: 2 }}>{loadedFrom.day} · {loadedFrom.cycleName}</div>}
+        </div>
+        {!running && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button style={s.btnSm("#4ade80")} onClick={() => setShowPicker(true)}>Load</button>
+            <button style={s.btnSm("#fbbf24")} onClick={() => setEditing(true)}>Edit</button>
           </div>
         )}
       </div>
 
+      {(running || done) && cur ? (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 20 }}>
+            <div style={{ position: "relative", width: 220, height: 220, marginBottom: 16 }}>
+              <svg width="220" height="220" style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
+                <circle cx="110" cy="110" r="90" fill="none" stroke="#0d1824" strokeWidth="12" />
+                <circle cx="110" cy="110" r="90" fill="none" stroke={cur.color} strokeWidth="12"
+                  strokeDasharray={circumference} strokeDashoffset={circumference * (1 - progress)}
+                  strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.9s linear" }} />
+              </svg>
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ fontSize: 52, fontWeight: 900, color: cur.color, lineHeight: 1 }}>{fmt(timeLeft)}</div>
+                <div style={{ fontSize: 12, color: "#4a8a9a", marginTop: 4 }}>{currentStep + 1}/{totalSteps}</div>
+              </div>
+            </div>
+            <div style={{ textAlign: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "#e8f4f8" }}>{cur.label}</div>
+              {cur.totalReps > 1 && <div style={{ fontSize: 16, color: cur.color, fontWeight: 700, marginTop: 4 }}>Rep {cur.rep} / {cur.totalReps}</div>}
+            </div>
+            {steps[currentStep + 1] && (
+              <div style={{ ...s.card, background: "#0a131d", padding: "10px 20px", textAlign: "center", marginBottom: 12, width: "100%", boxSizing: "border-box" }}>
+                <div style={s.label}>Next Up</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: steps[currentStep + 1].color }}>
+                  {steps[currentStep + 1].label} · {fmt(steps[currentStep + 1].duration)}
+                </div>
+                {steps[currentStep + 1].totalReps > 1 && <div style={{ fontSize: 12, color: "#4a7a8a" }}>Rep {steps[currentStep + 1].rep}/{steps[currentStep + 1].totalReps}</div>}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, width: "100%" }}>
+              <button style={{ ...s.btnSm(), flex: 1, padding: "12px" }} onClick={pause}>{running ? "PAUSE" : "RESUME"}</button>
+              <button style={{ ...s.btnSm("#fbbf24"), flex: 1, padding: "12px" }} onClick={skip}>SKIP →</button>
+              <button style={{ ...s.btnSm("#f87171"), flex: 1, padding: "12px" }} onClick={reset}>RESET</button>
+            </div>
+            {running && (
+              <button style={{ ...s.btn("secondary"), marginTop: 10, color: "#4ade80", borderColor: "#4ade8044" }} onClick={() => setLocked(true)}>
+                🔒 LOCK SCREEN
+              </button>
+            )}
+          </div>
+        </>
+      ) : done ? (
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 60 }}>🏆</div>
+          <div style={{ fontSize: 28, fontWeight: 800, marginTop: 12, color: "#4ade80" }}>Session Complete!</div>
+          <button style={{ ...s.btn(), marginTop: 20 }} onClick={reset}>NEW SESSION</button>
+        </div>
+      ) : (
+        <button style={{ display: "block", width: "100%", padding: "20px", borderRadius: 14, border: "none", background: "linear-gradient(135deg,#00d4ff,#0090b0)", color: "#000", fontFamily: "'Barlow Condensed',sans-serif", fontSize: 20, fontWeight: 800, letterSpacing: 3, cursor: "pointer", marginBottom: 20 }} onClick={start}>
+          ▶ START
+        </button>
+      )}
+
+      {!running && !done && (
+        <div>
+          <div style={{ ...s.label, marginBottom: 10 }}>
+            {activeIntervals.length} intervals · {fmt(activeIntervals.reduce((a, iv) => a + iv.duration * iv.reps, 0))} total
+          </div>
+          {activeIntervals.map((iv) => (
+            <div key={iv.id} style={{ ...s.cardAccent(iv.color), padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>{iv.label || "(unnamed)"}</div>
+                <div style={{ fontSize: 12, color: "#4a7a8a", marginTop: 2 }}>{iv.reps > 1 ? `${iv.reps} × ` : ""}{fmt(iv.duration)}</div>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: iv.color }}>{fmt(iv.duration * iv.reps)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── SESSION EDITOR (with interval sub-editor) ─────────────────────────────────
+function SessionEditor({ session, dayName, onSave, onRemove, onCancel }) {
+  const [form, setForm] = useState({ ...session, intervals: session.intervals ? [...session.intervals] : [] });
+  const [editingInterval, setEditingInterval] = useState(null);
+  const [ivForm, setIvForm] = useState(null);
+  const s = makeStyles();
+  const setSF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const addInterval = () => {
+    const color = SPORT_COLORS[form.sport] || "#00d4ff";
+    const niv = blankInterval(color);
+    const newIdx = form.intervals.length;
+    setForm((f) => ({ ...f, intervals: [...f.intervals, niv] }));
+    setEditingInterval(newIdx);
+    setIvForm({ ...niv });
+  };
+
+  const openIv = (idx) => { setEditingInterval(idx); setIvForm({ ...form.intervals[idx] }); };
+  const saveIv = () => {
+    setForm((f) => ({ ...f, intervals: f.intervals.map((iv, i) => i === editingInterval ? { ...ivForm } : iv) }));
+    setEditingInterval(null); setIvForm(null);
+  };
+  const removeIv = (idx) => setForm((f) => ({ ...f, intervals: f.intervals.filter((_, i) => i !== idx) }));
+
+  if (editingInterval !== null && ivForm) {
+    return (
+      <div style={{ ...s.sheet, maxHeight: "85vh" }}>
+        <div style={s.grip} />
+        <div style={{ ...s.sb, marginBottom: 14 }}>
+          <div style={s.h3}>Interval · {form.title || form.sport}</div>
+          <button style={s.btnTiny("#f87171")} onClick={() => { removeIv(editingInterval); setEditingInterval(null); setIvForm(null); }}>Remove</button>
+        </div>
+        <div style={s.label}>Label</div>
+        <input style={s.input} placeholder="e.g. Hard 200, Rest" value={ivForm.label} onChange={(e) => setIvForm(f => ({ ...f, label: e.target.value }))} />
+        <div style={s.label}>Duration (seconds)</div>
+        <input type="number" min={1} style={s.input} value={ivForm.duration} onChange={(e) => setIvForm(f => ({ ...f, duration: parseInt(e.target.value) || 1 }))} />
+        <div style={{ fontSize: 11, color: "#4a7a8a", marginTop: -4, marginBottom: 8 }}>Tip: 1 min = 60, 5 min = 300, 10 min = 600</div>
+        <div style={s.label}>Reps</div>
+        <input type="number" min={1} style={s.input} value={ivForm.reps} onChange={(e) => setIvForm(f => ({ ...f, reps: parseInt(e.target.value) || 1 }))} />
+        <div style={s.label}>Color</div>
+        <input type="color" style={{ width: "100%", height: 44, background: "#0a131d", border: "1px solid #1a3a4a", borderRadius: 8, padding: 4, cursor: "pointer", boxSizing: "border-box", marginBottom: 12 }} value={ivForm.color} onChange={(e) => setIvForm(f => ({ ...f, color: e.target.value }))} />
+        <button style={s.btn()} onClick={saveIv}>Save Interval ✓</button>
+        <button style={s.btn("secondary")} onClick={() => { setEditingInterval(null); setIvForm(null); }}>Cancel</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...s.sheet, maxHeight: "92vh" }}>
+      <div style={s.grip} />
+      <div style={{ ...s.sb, marginBottom: 14 }}>
+        <div style={s.h3}>Edit Session · {dayName}</div>
+        <button style={s.btnTiny("#f87171")} onClick={onRemove}>Remove Session</button>
+      </div>
+
+      <div style={s.label}>Sport</div>
+      <select style={s.select} value={form.sport} onChange={(e) => setSF("sport", e.target.value)}>
+        {Object.keys(SPORT_ICONS).map((k) => <option key={k} value={k}>{SPORT_ICONS[k]} {k.charAt(0).toUpperCase() + k.slice(1)}</option>)}
+      </select>
+      <div style={s.label}>Title</div>
+      <input style={s.input} placeholder="e.g. Morning Endurance" value={form.title} onChange={(e) => setSF("title", e.target.value)} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div>
+          <div style={s.label}>Distance / Volume</div>
+          <input style={{ ...s.input }} placeholder="3000m, 45min" value={form.distance} onChange={(e) => setSF("distance", e.target.value)} />
+        </div>
+        <div>
+          <div style={s.label}>Intensity</div>
+          <input style={{ ...s.input }} placeholder="Z2, Mod, Max" value={form.intensity} onChange={(e) => setSF("intensity", e.target.value)} />
+        </div>
+      </div>
+      <div style={s.label}>Notes / Sets</div>
+      <textarea style={s.textarea} placeholder="Details, cues, sets..." value={form.notes} onChange={(e) => setSF("notes", e.target.value)} />
+
+      {/* INTERVALS */}
+      <div style={{ ...s.sb, margin: "12px 0 8px" }}>
+        <div>
+          <div style={s.label}>Timer Intervals</div>
+          <div style={{ fontSize: 11, color: "#2a5a6a" }}>Load these in the Timer tab → Load Workout</div>
+        </div>
+        <button style={s.btnTiny("#4ade80")} onClick={addInterval}>+ Add</button>
+      </div>
+
+      {form.intervals.length === 0 && (
+        <div style={{ ...s.card, padding: "10px 14px", opacity: 0.5, fontSize: 13, color: "#4a6a7a" }}>
+          No intervals yet — tap + Add to build your timer sequence
+        </div>
+      )}
+      {form.intervals.map((iv, idx) => (
+        <div key={iv.id} style={{ ...s.cardAccent(iv.color), padding: "8px 12px", cursor: "pointer", marginBottom: 6 }} onClick={() => openIv(idx)}>
+          <div style={s.sb}>
+            <div style={s.row}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: iv.color, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{iv.label || "(unnamed)"}</div>
+                <div style={{ fontSize: 11, color: "#4a7a8a" }}>{iv.reps > 1 ? `${iv.reps}× ` : ""}{fmt(iv.duration)}</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "#3a6a7a" }}>edit</span>
+              <button style={{ ...s.btnTiny("#f87171"), padding: "2px 7px" }} onClick={(e) => { e.stopPropagation(); removeIv(idx); }}>✕</button>
+            </div>
+          </div>
+        </div>
+      ))}
+      {form.intervals.length > 0 && (
+        <div style={{ fontSize: 12, color: "#4a7a8a", marginBottom: 12 }}>
+          Total: {fmt(form.intervals.reduce((a, iv) => a + iv.duration * iv.reps, 0))} · {form.intervals.reduce((a, iv) => a + iv.reps, 0)} steps
+        </div>
+      )}
+
+      <button style={s.btn()} onClick={() => onSave(form)}>Save Session ✓</button>
+      <button style={s.btn("secondary")} onClick={onCancel}>Cancel</button>
+    </div>
+  );
+}
+
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState("today");
+  const [cycles, setCycles] = useLocalStorage("laplog_cycles", DEFAULT_CYCLES);
+  const [drafts, setDrafts] = useLocalStorage("laplog_drafts", DEFAULT_DRAFTS);
+  const [past] = useLocalStorage("laplog_past", DEFAULT_PAST);
+  const [selectedCycle, setSelectedCycle] = useState(null);
+  const [modal, setModal] = useState(null);
+  const s = makeStyles();
+
+  const activeCycle = cycles.find((c) => c.status === "active") || null;
+  const todayDay = getTodayDay();
+  const todayDayData = activeCycle?.days?.find((d) => d.day === todayDay);
+
+  const navStyles = {
+    root: { fontFamily: "'Barlow Condensed', sans-serif", background: "#080e1a", minHeight: "100vh", color: "#e8f4f8", maxWidth: 430, margin: "0 auto", position: "relative" },
+    header: { padding: "20px 20px 10px", borderBottom: "1px solid #1a2a3a", display: "flex", alignItems: "center", justifyContent: "space-between" },
+    logo: { fontSize: 22, fontWeight: 800, letterSpacing: 2, color: "#00d4ff", textTransform: "uppercase" },
+    dateStr: { fontSize: 12, color: "#4a7a8a", letterSpacing: 1 },
+    nav: { display: "flex", borderBottom: "1px solid #1a2a3a", background: "#080e1a", position: "sticky", top: 0, zIndex: 10 },
+    navBtn: (a) => ({ flex: 1, padding: "12px 1px", background: "none", border: "none", color: a ? "#00d4ff" : "#3a5a6a", fontFamily: "'Barlow Condensed',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", borderBottom: a ? "2px solid #00d4ff" : "2px solid transparent", transition: "all 0.2s" }),
+  };
+
+  const SessionChip = ({ session, onTap }) => {
+    const color = SPORT_COLORS[session.sport] || "#00d4ff";
+    return (
+      <div style={{ ...s.cardAccent(color), cursor: "pointer", padding: "10px 14px" }} onClick={() => onTap && onTap(session)}>
+        <div style={s.sb}>
+          <div style={s.row}>
+            <span style={{ fontSize: 20 }}>{SPORT_ICONS[session.sport]}</span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{session.title || session.sport}</div>
+              {session.notes && <div style={{ fontSize: 11, color: "#4a7a8a", marginTop: 2 }}>{session.notes}</div>}
+            </div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            {session.distance && <div style={{ fontSize: 13, fontWeight: 800, color }}>{session.distance}</div>}
+            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", marginTop: 2 }}>
+              {session.intensity && <div style={s.pill(color)}>{session.intensity}</div>}
+              {session.intervals?.length > 0 && <div style={s.pill("#4ade80")}>⏱ {session.intervals.length}</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const TodayTab = () => (
+    <div style={s.page}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={s.label}>Today — {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>
+        {todayDayData && todayDayData.sessions.length > 0 ? (
+          <>
+            <div style={{ ...s.sb, marginBottom: 10 }}>
+              <div style={s.h2}>{activeCycle?.name}</div>
+              <div style={s.pill("#00d4ff")}>{todayDayData.sessions.length} SESSION{todayDayData.sessions.length > 1 ? "S" : ""}</div>
+            </div>
+            {todayDayData.sessions.map((sess, i) => (
+              <div key={sess.id}>
+                <div style={{ fontSize: 10, color: "#2a5a6a", letterSpacing: 2, marginBottom: 4 }}>SESSION {i + 1}</div>
+                <SessionChip session={sess} onTap={(s2) => setModal({ type: "workout", data: s2 })} />
+              </div>
+            ))}
+          </>
+        ) : (
+          <div style={{ ...s.card, textAlign: "center", padding: 28 }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>😴</div>
+            <div style={s.h2}>Rest Day</div>
+          </div>
+        )}
+      </div>
       {activeCycle && (
         <div style={s.card}>
-          <div style={s.label}>This Week — {activeCycle.name}</div>
+          <div style={s.label}>This Week</div>
           {DAYS_ORDER.map((d) => {
-            const w = activeCycle.days.find((x) => x.day === d);
+            const dd = activeCycle.days.find((x) => x.day === d);
+            const sessions = dd?.sessions || [];
             const isToday = d === todayDay;
+            const color = SPORT_COLORS[sessions[0]?.sport || "rest"];
             return (
-              <div
-                key={d}
-                style={s.dayRow(isToday, w?.sport || "rest")}
-                onClick={() => w && setModal({ type: "workout", data: w })}
-              >
-                <div style={{ width: 36, fontSize: 11, fontWeight: 700, color: isToday ? "#00d4ff" : "#3a5a6a", letterSpacing: 1 }}>
-                  {d}
+              <div key={d} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 8, background: isToday ? `${color}15` : "#0a131d", border: isToday ? `1px solid ${color}40` : "1px solid transparent", marginBottom: 5, cursor: sessions.length ? "pointer" : "default" }}
+                onClick={() => sessions.length && setModal({ type: "dayDetail", data: { day: d, sessions, cycleName: activeCycle.name } })}>
+                <div style={{ width: 34, fontSize: 11, fontWeight: 700, color: isToday ? "#00d4ff" : "#3a5a6a", letterSpacing: 1 }}>{d}</div>
+                <div style={{ display: "flex", gap: 3 }}>
+                  {sessions.length > 0 ? sessions.map((se) => <span key={se.id} style={{ fontSize: 15 }}>{SPORT_ICONS[se.sport]}</span>) : <span style={{ fontSize: 15 }}>😴</span>}
                 </div>
-                <div style={{ fontSize: 18 }}>{SPORT_ICONS[w?.sport || "rest"]}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: isToday ? "#e8f4f8" : "#8ab0bc" }}>
-                    {w?.title || "Rest"}
-                  </div>
-                  {w?.distance && <div style={{ fontSize: 11, color: "#4a7a8a" }}>{w.distance}</div>}
+                <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: isToday ? "#e8f4f8" : "#6a9aaa" }}>
+                  {sessions.length > 0 ? sessions.map((se) => se.title || se.sport).join(" + ") : "Rest"}
                 </div>
-                {w?.intensity && (
-                  <div style={{ fontSize: 11, color: SPORT_COLORS[w.sport], fontWeight: 700 }}>{w.intensity}</div>
-                )}
+                {sessions.length > 1 && <div style={{ ...s.pill(color), fontSize: 10 }}>{sessions.length}</div>}
               </div>
             );
           })}
         </div>
       )}
-
-      {!activeCycle && (
-        <div style={{ ...s.card, textAlign: "center", padding: 30 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🏊</div>
-          <div style={s.h2}>No Active Cycle</div>
-          <div style={{ ...s.sub, marginBottom: 16 }}>Head to Cycles to start a new training block.</div>
-          <button style={s.btn()} onClick={() => setTab("cycles")}>Go to Cycles</button>
-        </div>
-      )}
     </div>
   );
 
-  // ---- CYCLES TAB ----
-  const CyclesTab = () => (
-    <div style={s.page}>
-      <div style={{ ...s.spaceBetween, marginBottom: 16 }}>
-        <div style={s.h2}>Training Cycles</div>
-        <button style={s.btnSm()} onClick={() => setModal({ type: "newCycle" })}>+ New</button>
-      </div>
-
-      {cycles.length > 0 && (
-        <>
-          <div style={s.label}>Active</div>
-          {cycles.map((c) => (
-            <div key={c.id} style={s.cardAccent(SPORT_COLORS[c.sport])} onClick={() => setSelectedCycle(c)}>
-              <div style={s.spaceBetween}>
-                <div>
-                  <div style={s.h3}>{SPORT_ICONS[c.sport]} {c.name}</div>
-                  <div style={{ ...s.sub, marginTop: 4 }}>{c.weeks}w · started {new Date(c.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                </div>
-                <div style={s.pill(SPORT_COLORS[c.sport])}>ACTIVE</div>
-              </div>
-              {c.notes && <div style={{ ...s.sub, marginTop: 8, fontSize: 12 }}>{c.notes}</div>}
-              <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
-                <button style={s.btnSm(SPORT_COLORS[c.sport])} onClick={(e) => { e.stopPropagation(); setSelectedCycle(c); }}>View Schedule</button>
-                <button style={s.btnSm("#ff6b35")} onClick={(e) => { e.stopPropagation(); setModal({ type: "editCycle", data: c }); }}>Edit</button>
-              </div>
-            </div>
-          ))}
-        </>
-      )}
-
-      <div style={{ ...s.spaceBetween, marginTop: 16, marginBottom: 8 }}>
-        <div style={s.label}>Draft Cycles</div>
-        <button style={s.btnSm("#fbbf24")} onClick={() => setModal({ type: "newDraft" })}>+ Draft</button>
-      </div>
-      {drafts.length === 0 && <div style={{ ...s.sub, marginBottom: 12 }}>No drafts yet.</div>}
-      {drafts.map((d) => (
-        <div key={d.id} style={s.card}>
-          <div style={s.spaceBetween}>
-            <div>
-              <div style={s.h3}>{SPORT_ICONS[d.sport]} {d.name}</div>
-              <div style={{ ...s.sub, marginTop: 4, fontSize: 12 }}>{d.notes}</div>
-            </div>
-            <div style={s.pill("#fbbf24")}>DRAFT</div>
-          </div>
-          <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
-            <button style={s.btnSm("#fbbf24")} onClick={() => setModal({ type: "viewDraft", data: d })}>View</button>
-            <button style={s.btnSm("#4ade80")} onClick={() => {
-              const active = { ...d, id: `c${Date.now()}`, status: "active", weeks: 4, startDate: new Date().toISOString().split("T")[0] };
-              setCycles((prev) => prev.map((c) => ({ ...c, status: "complete" })).concat(active));
-              setDrafts((prev) => prev.filter((x) => x.id !== d.id));
-            }}>Activate</button>
-            <button style={s.btnSm("#f87171")} onClick={() => setDrafts((prev) => prev.filter((x) => x.id !== d.id))}>Delete</button>
-          </div>
-        </div>
-      ))}
-
-      <div style={{ marginTop: 16, marginBottom: 8 }}>
-        <div style={s.label}>Past Cycles</div>
-      </div>
-      {past.map((c) => (
-        <div key={c.id} style={s.card} onClick={() => setModal({ type: "pastCycle", data: c })}>
-          <div style={s.spaceBetween}>
-            <div>
-              <div style={s.h3}>{SPORT_ICONS[c.sport]} {c.name}</div>
-              <div style={{ ...s.sub, marginTop: 4 }}>{c.weeks}w · {new Date(c.startDate).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</div>
-            </div>
-            <div style={s.pill("#4ade80")}>DONE</div>
-          </div>
-          {c.summary && (
-            <div style={{ display: "flex", gap: 12, marginTop: 10 }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: "#00d4ff" }}>{c.summary.swimKm}km</div>
-                <div style={{ fontSize: 10, color: "#4a7a8a", letterSpacing: 1 }}>SWIM</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: "#ff6b35" }}>{c.summary.runKm}km</div>
-                <div style={{ fontSize: 10, color: "#4a7a8a", letterSpacing: 1 }}>RUN</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: "#e8f4f8" }}>{c.summary.totalSessions}</div>
-                <div style={{ fontSize: 10, color: "#4a7a8a", letterSpacing: 1 }}>SESSIONS</div>
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-
-  // ---- SCHEDULE TAB (selected cycle week view) ----
   const ScheduleTab = () => {
     const c = selectedCycle || activeCycle;
-    if (!c) return (
-      <div style={{ ...s.page, textAlign: "center", paddingTop: 60 }}>
-        <div style={{ fontSize: 48 }}>📅</div>
-        <div style={{ ...s.h2, marginTop: 12 }}>No Cycle Selected</div>
-        <div style={{ ...s.sub, marginBottom: 20 }}>Go to Cycles to select or create one.</div>
-        <button style={s.btn()} onClick={() => setTab("cycles")}>Go to Cycles</button>
-      </div>
-    );
+    if (!c) return <div style={{ ...s.page, textAlign: "center", paddingTop: 60 }}><div style={{ fontSize: 48 }}>📅</div><div style={{ ...s.h2, marginTop: 12 }}>No Cycle Selected</div><button style={{ ...s.btn(), marginTop: 20 }} onClick={() => setTab("cycles")}>Go to Cycles</button></div>;
     return (
       <div style={s.page}>
-        <div style={{ ...s.spaceBetween, marginBottom: 4 }}>
-          <div>
-            <div style={s.label}>Weekly Schedule</div>
-            <div style={s.h2}>{c.name}</div>
-          </div>
+        <div style={{ ...s.sb, marginBottom: 4 }}>
+          <div><div style={s.label}>Weekly Schedule</div><div style={s.h2}>{c.name}</div></div>
           <button style={s.btnSm()} onClick={() => setModal({ type: "editCycle", data: c })}>Edit</button>
         </div>
         <div style={{ ...s.sub, marginBottom: 16 }}>{c.notes}</div>
-
         {DAYS_ORDER.map((d) => {
-          const w = c.days.find((x) => x.day === d);
+          const dd = c.days.find((x) => x.day === d);
+          const sessions = dd?.sessions || [];
           const isToday = d === todayDay && c.status === "active";
-          const color = SPORT_COLORS[w?.sport || "rest"];
           return (
-            <div
-              key={d}
-              style={{
-                ...s.cardAccent(color),
-                opacity: w ? 1 : 0.5,
-                cursor: w ? "pointer" : "default",
-              }}
-              onClick={() => w && setModal({ type: "workout", data: w })}
-            >
-              <div style={s.spaceBetween}>
-                <div style={s.row}>
-                  <div style={{ fontSize: 24 }}>{SPORT_ICONS[w?.sport || "rest"]}</div>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? "#00d4ff" : "#4a6a7a", letterSpacing: 2 }}>
-                      {d.toUpperCase()}{isToday ? " — TODAY" : ""}
-                    </div>
-                    <div style={{ fontSize: 17, fontWeight: 700 }}>{w?.title || "Rest"}</div>
-                  </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  {w?.distance && <div style={{ fontSize: 15, fontWeight: 800, color }}>{w.distance}</div>}
-                  {w?.intensity && <div style={s.pill(color)}>{w.intensity}</div>}
-                </div>
+            <div key={d} style={{ marginBottom: 16 }}>
+              <div style={{ ...s.sb, marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2, color: isToday ? "#00d4ff" : "#3a5a6a" }}>{d.toUpperCase()}{isToday ? " · TODAY" : ""}</div>
+                <div style={{ fontSize: 11, color: "#2a4a5a" }}>{sessions.length} session{sessions.length !== 1 ? "s" : ""}</div>
               </div>
-              {w?.notes && <div style={{ ...s.sub, fontSize: 12, marginTop: 6 }}>{w.notes}</div>}
+              {sessions.length === 0 && <div style={{ ...s.card, padding: "10px 14px", opacity: 0.45 }}><span>😴</span> <span style={{ fontSize: 13, color: "#4a6a7a" }}>Rest</span></div>}
+              {sessions.map((sess) => <SessionChip key={sess.id} session={sess} onTap={(s2) => setModal({ type: "workout", data: s2 })} />)}
             </div>
           );
         })}
@@ -542,118 +760,196 @@ export default function App() {
     );
   };
 
-  // ---- STATS TAB ----
-  const StatsTab = () => {
-    const allCycles = [...past, ...cycles.filter((c) => c.status === "complete")];
-    return (
-      <div style={s.page}>
-        <div style={s.label}>Training Stats</div>
-        <div style={s.h2}>Your History</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "16px 0" }}>
-          {[
-            { label: "Total Cycles", value: allCycles.length + cycles.filter((c) => c.status === "active").length, color: "#00d4ff" },
-            { label: "Swim Sessions", value: "57", color: "#00d4ff" },
-            { label: "Run Sessions", value: "22", color: "#ff6b35" },
-            { label: "Strength Days", value: "18", color: "#ff3e9d" },
-          ].map((s2) => (
-            <div key={s2.label} style={{ ...s.card, textAlign: "center" }}>
-              <div style={{ fontSize: 28, fontWeight: 900, color: s2.color }}>{s2.value}</div>
-              <div style={{ fontSize: 11, color: "#4a7a8a", letterSpacing: 1, textTransform: "uppercase" }}>{s2.label}</div>
+  const CyclesTab = () => (
+    <div style={s.page}>
+      <div style={{ ...s.sb, marginBottom: 16 }}>
+        <div style={s.h2}>Training Cycles</div>
+        <button style={s.btnSm()} onClick={() => setModal({ type: "newCycle" })}>+ New</button>
+      </div>
+      {cycles.length > 0 && <>
+        <div style={s.label}>Active</div>
+        {cycles.map((c) => (
+          <div key={c.id} style={s.cardAccent(SPORT_COLORS[c.sport])}>
+            <div style={s.sb}>
+              <div><div style={s.h3}>{SPORT_ICONS[c.sport]} {c.name}</div><div style={{ ...s.sub, marginTop: 4 }}>{c.weeks}w · {new Date(c.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div></div>
+              <div style={s.pill(SPORT_COLORS[c.sport])}>ACTIVE</div>
             </div>
-          ))}
-        </div>
-
-        <div style={s.label}>Completed Cycles</div>
-        {allCycles.map((c) => (
-          <div key={c.id} style={s.card}>
-            <div style={s.spaceBetween}>
-              <div style={s.h3}>{SPORT_ICONS[c.sport]} {c.name}</div>
-              <div style={{ ...s.sub, fontSize: 12 }}>{new Date(c.startDate).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</div>
+            {c.notes && <div style={{ ...s.sub, marginTop: 8, fontSize: 12 }}>{c.notes}</div>}
+            <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+              <button style={s.btnSm(SPORT_COLORS[c.sport])} onClick={() => { setSelectedCycle(c); setTab("schedule"); }}>Schedule</button>
+              <button style={s.btnSm("#ff6b35")} onClick={() => setModal({ type: "editCycle", data: c })}>Edit</button>
             </div>
-            {c.summary && (
-              <>
-                <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
-                  <div><span style={{ color: "#00d4ff", fontWeight: 800 }}>{c.summary.swimKm}km</span> <span style={{ color: "#4a7a8a", fontSize: 12 }}>swim</span></div>
-                  <div><span style={{ color: "#ff6b35", fontWeight: 800 }}>{c.summary.runKm}km</span> <span style={{ color: "#4a7a8a", fontSize: 12 }}>run</span></div>
-                  <div><span style={{ color: "#e8f4f8", fontWeight: 800 }}>{c.summary.totalSessions}</span> <span style={{ color: "#4a7a8a", fontSize: 12 }}>sessions</span></div>
-                </div>
-                <div style={{ ...s.sub, marginTop: 6, fontSize: 12 }}>Top set: {c.summary.topSet}</div>
-              </>
-            )}
           </div>
         ))}
+      </>}
+      <div style={{ ...s.sb, marginTop: 16, marginBottom: 8 }}>
+        <div style={s.label}>Drafts</div>
+        <button style={s.btnSm("#fbbf24")} onClick={() => setModal({ type: "newDraft" })}>+ Draft</button>
+      </div>
+      {drafts.length === 0 && <div style={{ ...s.sub, marginBottom: 12 }}>No drafts yet.</div>}
+      {drafts.map((d) => (
+        <div key={d.id} style={s.card}>
+          <div style={s.sb}><div><div style={s.h3}>{SPORT_ICONS[d.sport]} {d.name}</div><div style={{ ...s.sub, fontSize: 12, marginTop: 4 }}>{d.notes}</div></div><div style={s.pill("#fbbf24")}>DRAFT</div></div>
+          <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+            <button style={s.btnSm("#fbbf24")} onClick={() => setModal({ type: "editCycle", data: d, draft: true })}>Edit</button>
+            <button style={s.btnSm("#4ade80")} onClick={() => {
+              const active = { ...d, id: `c${Date.now()}`, status: "active", weeks: d.weeks || 4, startDate: new Date().toISOString().split("T")[0] };
+              setCycles((prev) => prev.map((c) => ({ ...c, status: "complete" })).concat(active));
+              setDrafts((prev) => prev.filter((x) => x.id !== d.id));
+            }}>Activate</button>
+            <button style={s.btnSm("#f87171")} onClick={() => setDrafts((prev) => prev.filter((x) => x.id !== d.id))}>Delete</button>
+          </div>
+        </div>
+      ))}
+      <div style={{ marginTop: 16, marginBottom: 8 }}><div style={s.label}>Past Cycles</div></div>
+      {past.map((c) => (
+        <div key={c.id} style={s.card} onClick={() => setModal({ type: "pastCycle", data: c })}>
+          <div style={s.sb}><div><div style={s.h3}>{SPORT_ICONS[c.sport]} {c.name}</div><div style={{ ...s.sub, marginTop: 4 }}>{c.weeks}w · {new Date(c.startDate).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</div></div><div style={s.pill("#4ade80")}>DONE</div></div>
+          {c.summary && <div style={{ display: "flex", gap: 14, marginTop: 10 }}><div><span style={{ color: "#00d4ff", fontWeight: 800 }}>{c.summary.swimKm}km</span> <span style={{ color: "#4a7a8a", fontSize: 12 }}>swim</span></div><div><span style={{ color: "#ff6b35", fontWeight: 800 }}>{c.summary.runKm}km</span> <span style={{ color: "#4a7a8a", fontSize: 12 }}>run</span></div><div><span style={{ fontWeight: 800 }}>{c.summary.totalSessions}</span> <span style={{ color: "#4a7a8a", fontSize: 12 }}>sessions</span></div></div>}
+        </div>
+      ))}
+    </div>
+  );
+
+  const StatsTab = () => (
+    <div style={s.page}>
+      <div style={s.h2}>Your History</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "16px 0" }}>
+        {[{ label: "Total Cycles", value: past.length + cycles.length, color: "#00d4ff" }, { label: "Swim Sessions", value: "57", color: "#00d4ff" }, { label: "Run Sessions", value: "22", color: "#ff6b35" }, { label: "Strength Days", value: "18", color: "#ff3e9d" }].map((x) => (
+          <div key={x.label} style={{ ...s.card, textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 900, color: x.color }}>{x.value}</div><div style={{ fontSize: 11, color: "#4a7a8a", letterSpacing: 1, textTransform: "uppercase" }}>{x.label}</div></div>
+        ))}
+      </div>
+      {past.map((c) => (
+        <div key={c.id} style={s.card}>
+          <div style={s.sb}><div style={s.h3}>{SPORT_ICONS[c.sport]} {c.name}</div><div style={{ ...s.sub, fontSize: 12 }}>{new Date(c.startDate).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</div></div>
+          {c.summary && <><div style={{ display: "flex", gap: 16, marginTop: 10 }}><div><span style={{ color: "#00d4ff", fontWeight: 800 }}>{c.summary.swimKm}km</span> <span style={{ fontSize: 12, color: "#4a7a8a" }}>swim</span></div><div><span style={{ color: "#ff6b35", fontWeight: 800 }}>{c.summary.runKm}km</span> <span style={{ fontSize: 12, color: "#4a7a8a" }}>run</span></div><div><span style={{ fontWeight: 800 }}>{c.summary.totalSessions}</span> <span style={{ fontSize: 12, color: "#4a7a8a" }}>sessions</span></div></div><div style={{ ...s.sub, marginTop: 6, fontSize: 12 }}>Top set: {c.summary.topSet}</div></>}
+        </div>
+      ))}
+    </div>
+  );
+
+  // ── MODALS ──────────────────────────────────────────────────────────────────
+  const WorkoutModal = ({ data }) => {
+    const color = SPORT_COLORS[data.sport] || "#00d4ff";
+    return (
+      <div style={s.overlay} onClick={() => setModal(null)}>
+        <div style={s.sheet} onClick={(e) => e.stopPropagation()}>
+          <div style={s.grip} />
+          <div style={s.row}><div style={{ fontSize: 36 }}>{SPORT_ICONS[data.sport]}</div><div><div style={s.label}>{data.sport.toUpperCase()}</div><div style={s.h2}>{data.title || data.sport}</div></div></div>
+          <div style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+            {data.distance && <div style={s.pill(color)}>{data.distance}</div>}
+            {data.intensity && <div style={s.pill(color)}>{data.intensity}</div>}
+            {data.intervals?.length > 0 && <div style={s.pill("#4ade80")}>⏱ {data.intervals.length} intervals</div>}
+          </div>
+          {data.notes && <div style={{ ...s.card, background: "#0a131d" }}><div style={s.label}>Notes</div><div style={{ fontSize: 15, lineHeight: 1.6 }}>{data.notes}</div></div>}
+          {data.intervals?.length > 0 && (
+            <div style={s.card}>
+              <div style={s.label}>Timer Intervals</div>
+              {data.intervals.map((iv) => (
+                <div key={iv.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1a2a3a" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: iv.color }} />
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{iv.label}{iv.reps > 1 ? ` ×${iv.reps}` : ""}</div>
+                  </div>
+                  <div style={{ fontSize: 13, color: iv.color, fontWeight: 700 }}>{fmt(iv.duration)}</div>
+                </div>
+              ))}
+              <button style={{ ...s.btnSm("#4ade80"), marginTop: 10, width: "100%", display: "block", textAlign: "center" }} onClick={() => { setModal(null); setTab("timer"); }}>
+                ▶ Open in Timer
+              </button>
+            </div>
+          )}
+          <button style={s.btn("secondary")} onClick={() => setModal(null)}>Close</button>
+        </div>
       </div>
     );
   };
 
-  // ---- MODALS ----
-  const WorkoutModal = ({ data }) => (
+  const DayDetailModal = ({ data }) => (
     <div style={s.overlay} onClick={() => setModal(null)}>
       <div style={s.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={s.grip} />
-        <div style={s.row}>
-          <div style={{ fontSize: 36 }}>{SPORT_ICONS[data.sport]}</div>
-          <div>
-            <div style={s.label}>{data.day}</div>
-            <div style={s.h2}>{data.title}</div>
-          </div>
+        <div style={s.h2}>{data.day} — {data.sessions.length} Session{data.sessions.length > 1 ? "s" : ""}</div>
+        <div style={{ marginTop: 14 }}>
+          {data.sessions.map((sess, i) => {
+            const color = SPORT_COLORS[sess.sport] || "#00d4ff";
+            return (
+              <div key={sess.id} style={{ ...s.cardAccent(color), marginBottom: 10 }}>
+                <div style={s.sb}>
+                  <div style={s.row}><span style={{ fontSize: 24 }}>{SPORT_ICONS[sess.sport]}</span><div><div style={{ fontSize: 10, color: "#3a6a7a", letterSpacing: 2 }}>SESSION {i + 1}</div><div style={{ fontSize: 16, fontWeight: 700 }}>{sess.title || sess.sport}</div></div></div>
+                  <div style={{ textAlign: "right" }}>{sess.distance && <div style={{ fontSize: 14, fontWeight: 800, color }}>{sess.distance}</div>}{sess.intensity && <div style={s.pill(color)}>{sess.intensity}</div>}</div>
+                </div>
+                {sess.notes && <div style={{ ...s.sub, fontSize: 12, marginTop: 8 }}>{sess.notes}</div>}
+                {sess.intervals?.length > 0 && <div style={{ fontSize: 11, color: "#4ade80", marginTop: 6 }}>⏱ {sess.intervals.length} intervals attached</div>}
+              </div>
+            );
+          })}
         </div>
-        <div style={{ display: "flex", gap: 10, margin: "12px 0" }}>
-          {data.distance && <div style={s.pill(SPORT_COLORS[data.sport])}>{data.distance}</div>}
-          {data.intensity && <div style={s.pill(SPORT_COLORS[data.sport])}>{data.intensity}</div>}
-          <div style={s.pill("#3a5a6a")}>{data.sport.toUpperCase()}</div>
-        </div>
-        {data.notes && (
-          <div style={{ ...s.card, background: "#0a131d" }}>
-            <div style={s.label}>Notes / Details</div>
-            <div style={{ fontSize: 15, lineHeight: 1.6 }}>{data.notes}</div>
-          </div>
-        )}
         <button style={s.btn("secondary")} onClick={() => setModal(null)}>Close</button>
       </div>
     </div>
   );
 
-  const NewCycleModal = ({ draft = false, existing = null }) => {
-    const [form, setForm] = useState(existing || {
-      name: "", sport: "swim", weeks: 4, notes: "",
-      days: DAYS_ORDER.map((d) => ({ day: d, sport: "swim", title: "", distance: "", intensity: "", notes: "" })),
-    });
+  const CycleEditorModal = ({ draft = false, existing = null }) => {
+    const makeDefaultDays = () => DAYS_ORDER.map((d) => ({ day: d, sessions: [] }));
+    const [form, setForm] = useState(() =>
+      existing ? { ...existing, days: existing.days?.length ? existing.days.map(d => ({ ...d, sessions: (d.sessions || []).map(s2 => ({ ...s2, intervals: s2.intervals || [] })) })) : makeDefaultDays() }
+               : { name: "", sport: "swim", weeks: 4, notes: "", days: makeDefaultDays() }
+    );
     const [step, setStep] = useState(0);
-
+    const [editingSessionCtx, setEditingSessionCtx] = useState(null); // { dayIdx, sessIdx }
     const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-    const setDayField = (idx, k, v) => setForm((f) => {
-      const days = [...f.days];
-      days[idx] = { ...days[idx], [k]: v };
-      return { ...f, days };
-    });
+
+    const addSession = (dayIdx) => {
+      const ns = blankSession(form.sport);
+      setForm((f) => ({ ...f, days: f.days.map((d, i) => i === dayIdx ? { ...d, sessions: [...d.sessions, ns] } : d) }));
+      setEditingSessionCtx({ dayIdx, sessIdx: form.days[dayIdx].sessions.length });
+    };
+    const removeSession = (dayIdx, sessIdx) => setForm((f) => ({ ...f, days: f.days.map((d, i) => i === dayIdx ? { ...d, sessions: d.sessions.filter((_, si) => si !== sessIdx) } : d) }));
+    const saveSession = (dayIdx, sessIdx, updated) => {
+      setForm((f) => ({ ...f, days: f.days.map((d, i) => i !== dayIdx ? d : { ...d, sessions: d.sessions.map((s2, si) => si === sessIdx ? updated : s2) }) }));
+      setEditingSessionCtx(null);
+    };
 
     const save = () => {
       if (draft) {
-        if (existing) {
-          setDrafts((prev) => prev.map((d) => d.id === existing.id ? { ...form } : d));
-        } else {
-          setDrafts((prev) => [...prev, { ...form, id: `d${Date.now()}` }]);
-        }
+        if (existing) setDrafts((prev) => prev.map((d) => d.id === existing.id ? { ...form } : d));
+        else setDrafts((prev) => [...prev, { ...form, id: `d${Date.now()}` }]);
       } else {
-        const newC = { ...form, id: `c${Date.now()}`, status: "active", startDate: new Date().toISOString().split("T")[0] };
-        setCycles((prev) => prev.map((c) => ({ ...c, status: "complete" })).concat(newC));
+        const newC = { ...form, id: existing?.id || `c${Date.now()}`, status: "active", startDate: existing?.startDate || new Date().toISOString().split("T")[0] };
+        if (existing) setCycles((prev) => prev.map((c) => c.id === existing.id ? newC : c));
+        else setCycles((prev) => prev.map((c) => ({ ...c, status: "complete" })).concat(newC));
       }
       setModal(null);
     };
 
+    if (editingSessionCtx !== null) {
+      const { dayIdx, sessIdx } = editingSessionCtx;
+      const sess = form.days[dayIdx]?.sessions[sessIdx];
+      if (!sess) return null;
+      return (
+        <div style={s.overlay} onClick={() => setEditingSessionCtx(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%" }}>
+            <SessionEditor
+              session={sess}
+              dayName={form.days[dayIdx].day}
+              onSave={(updated) => saveSession(dayIdx, sessIdx, updated)}
+              onRemove={() => { removeSession(dayIdx, sessIdx); setEditingSessionCtx(null); }}
+              onCancel={() => setEditingSessionCtx(null)}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={s.overlay} onClick={() => setModal(null)}>
-        <div style={{ ...s.sheet, maxHeight: "90vh" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ ...s.sheet, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
           <div style={s.grip} />
-          <div style={s.spaceBetween}>
-            <div style={s.h3}>{existing ? "Edit" : draft ? "New Draft" : "New Cycle"}</div>
-            <div style={{ ...s.label }}>{step === 0 ? "Step 1/2: Info" : "Step 2/2: Schedule"}</div>
-          </div>
-          <div style={{ margin: "12px 0 6px", height: 4, background: "#0a131d", borderRadius: 2 }}>
+          <div style={s.sb}><div style={s.h3}>{existing ? "Edit" : draft ? "New Draft" : "New Cycle"}</div><div style={s.label}>{step === 0 ? "1/2 Info" : "2/2 Schedule"}</div></div>
+          <div style={{ margin: "10px 0 6px", height: 4, background: "#0a131d", borderRadius: 2 }}>
             <div style={{ width: step === 0 ? "50%" : "100%", height: "100%", background: "#00d4ff", borderRadius: 2, transition: "width 0.3s" }} />
           </div>
-
           {step === 0 ? (
             <>
               <div style={s.label}>Cycle Name</div>
@@ -666,30 +962,46 @@ export default function App() {
               <input style={s.input} type="number" min={1} max={52} value={form.weeks} onChange={(e) => setField("weeks", e.target.value)} />
               <div style={s.label}>Notes / Goals</div>
               <textarea style={s.textarea} placeholder="What's the focus of this block?" value={form.notes} onChange={(e) => setField("notes", e.target.value)} />
-              <button style={s.btn()} onClick={() => setStep(1)}>Next →</button>
+              <button style={s.btn()} onClick={() => setStep(1)}>Next: Build Schedule →</button>
             </>
           ) : (
             <>
-              <div style={{ ...s.sub, marginBottom: 10 }}>Set each day's workout for the repeating weekly template.</div>
-              {form.days.map((day, i) => (
-                <div key={day.day} style={{ ...s.card, padding: "10px 12px", marginBottom: 8 }}>
-                  <div style={{ fontWeight: 800, color: "#00d4ff", letterSpacing: 2, fontSize: 12, marginBottom: 6 }}>{day.day.toUpperCase()}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                    <select style={{ ...s.select, marginBottom: 0 }} value={day.sport} onChange={(e) => setDayField(i, "sport", e.target.value)}>
-                      {Object.keys(SPORT_ICONS).map((k) => <option key={k} value={k}>{SPORT_ICONS[k]} {k}</option>)}
-                    </select>
-                    <input style={{ ...s.input, marginBottom: 0 }} placeholder="Title" value={day.title} onChange={(e) => setDayField(i, "title", e.target.value)} />
-                    <input style={{ ...s.input, marginBottom: 0 }} placeholder="Distance (e.g. 3000m)" value={day.distance} onChange={(e) => setDayField(i, "distance", e.target.value)} />
-                    <input style={{ ...s.input, marginBottom: 0 }} placeholder="Intensity (Z2, Mod…)" value={day.intensity} onChange={(e) => setDayField(i, "intensity", e.target.value)} />
+              <div style={{ ...s.sub, marginBottom: 12, fontSize: 12 }}>Tap a session to edit it and add timer intervals.</div>
+              {form.days.map((day, dayIdx) => (
+                <div key={day.day} style={{ marginBottom: 14 }}>
+                  <div style={{ ...s.sb, marginBottom: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2, color: "#4a7a9a" }}>{day.day.toUpperCase()}</div>
+                    <button style={s.btnTiny()} onClick={() => addSession(dayIdx)}>+ Session</button>
                   </div>
-                  <input style={{ ...s.input, marginTop: 6, marginBottom: 0 }} placeholder="Notes / sets" value={day.notes} onChange={(e) => setDayField(i, "notes", e.target.value)} />
+                  {day.sessions.length === 0 && <div style={{ ...s.card, padding: "8px 12px", opacity: 0.4, fontSize: 13, color: "#4a6a7a" }}>😴 Rest</div>}
+                  {day.sessions.map((sess, sessIdx) => {
+                    const color = SPORT_COLORS[sess.sport] || "#00d4ff";
+                    return (
+                      <div key={sess.id} style={{ ...s.cardAccent(color), padding: "8px 12px", cursor: "pointer" }} onClick={() => setEditingSessionCtx({ dayIdx, sessIdx })}>
+                        <div style={s.sb}>
+                          <div style={s.row}>
+                            <span style={{ fontSize: 18 }}>{SPORT_ICONS[sess.sport]}</span>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 700 }}>{sess.title || "(untitled)"}</div>
+                              <div style={{ fontSize: 11, color: "#4a7a8a" }}>
+                                {[sess.distance, sess.intensity].filter(Boolean).join(" · ")}
+                                {sess.intervals?.length > 0 && ` · ⏱ ${sess.intervals.length} intervals`}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <span style={{ fontSize: 11, color: "#3a6a7a" }}>edit</span>
+                            <button style={{ ...s.btnTiny("#f87171"), padding: "2px 7px" }} onClick={(e) => { e.stopPropagation(); removeSession(dayIdx, sessIdx); }}>✕</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <button style={{ ...s.btn("secondary"), flex: 1 }} onClick={() => setStep(0)}>← Back</button>
-                <button style={{ ...s.btn(), flex: 2 }} onClick={save}>
-                  {draft ? "Save Draft" : "Activate Cycle"}
-                </button>
+                <button style={{ ...s.btn(), flex: 2 }} onClick={save}>{draft ? "Save Draft" : "Activate Cycle"}</button>
               </div>
             </>
           )}
@@ -705,68 +1017,34 @@ export default function App() {
         <div style={s.pill("#4ade80")}>COMPLETED</div>
         <div style={{ ...s.h2, marginTop: 8 }}>{SPORT_ICONS[data.sport]} {data.name}</div>
         <div style={s.sub}>{data.weeks} weeks · {new Date(data.startDate).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
-        {data.notes && <div style={{ ...s.sub, margin: "10px 0" }}>{data.notes}</div>}
-        {data.summary && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, margin: "16px 0" }}>
-            {[
-              { k: "Swim", v: `${data.summary.swimKm}km`, c: "#00d4ff" },
-              { k: "Run", v: `${data.summary.runKm}km`, c: "#ff6b35" },
-              { k: "Sessions", v: data.summary.totalSessions, c: "#e8f4f8" },
-            ].map((x) => (
-              <div key={x.k} style={{ ...s.card, textAlign: "center" }}>
-                <div style={{ fontSize: 20, fontWeight: 900, color: x.c }}>{x.v}</div>
-                <div style={{ fontSize: 10, color: "#4a7a8a", letterSpacing: 1 }}>{x.k}</div>
-              </div>
-            ))}
-          </div>
-        )}
-        {data.summary?.topSet && (
-          <div style={s.card}>
-            <div style={s.label}>Top Set</div>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>{data.summary.topSet}</div>
-          </div>
-        )}
+        {data.summary && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, margin: "16px 0" }}>{[{ k: "Swim", v: `${data.summary.swimKm}km`, c: "#00d4ff" }, { k: "Run", v: `${data.summary.runKm}km`, c: "#ff6b35" }, { k: "Sessions", v: data.summary.totalSessions, c: "#e8f4f8" }].map((x) => <div key={x.k} style={{ ...s.card, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: x.c }}>{x.v}</div><div style={{ fontSize: 10, color: "#4a7a8a", letterSpacing: 1 }}>{x.k}</div></div>)}</div>}
         <button style={s.btn("secondary")} onClick={() => setModal(null)}>Close</button>
       </div>
     </div>
   );
 
   return (
-    <div style={s.root}>
+    <div style={navStyles.root}>
       <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
-
-      {/* Header */}
-      <div style={s.header}>
-        <div>
-          <div style={s.logo}>⚡ LAPLOG</div>
-          <div style={s.dateStr}>{new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" }).toUpperCase()}</div>
-        </div>
-        {activeCycle && (
-          <div style={s.pill(SPORT_COLORS[activeCycle.sport])}>
-            {SPORT_ICONS[activeCycle.sport]} {activeCycle.name.split(" ")[0]}
-          </div>
-        )}
+      <div style={navStyles.header}>
+        <div><div style={navStyles.logo}>⚡ LAPLOG</div><div style={navStyles.dateStr}>{new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" }).toUpperCase()}</div></div>
+        {activeCycle && <div style={s.pill(SPORT_COLORS[activeCycle.sport])}>{SPORT_ICONS[activeCycle.sport]} {activeCycle.name.split(" ")[0]}</div>}
       </div>
-
-      {/* Nav */}
-      <div style={s.nav}>
-        {[["today", "Today"], ["schedule", "Schedule"], ["cycles", "Cycles"], ["stats", "Stats"]].map(([id, label]) => (
-          <button key={id} style={s.navBtn(tab === id)} onClick={() => setTab(id)}>{label}</button>
+      <div style={navStyles.nav}>
+        {[["today", "Today"], ["schedule", "Schedule"], ["cycles", "Cycles"], ["timer", "Timer"], ["stats", "Stats"]].map(([id, label]) => (
+          <button key={id} style={navStyles.navBtn(tab === id)} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
-
-      {/* Pages */}
       {tab === "today" && <TodayTab />}
       {tab === "schedule" && <ScheduleTab />}
       {tab === "cycles" && <CyclesTab />}
+      {tab === "timer" && <IntervalTimer cycles={[...cycles, ...drafts]} />}
       {tab === "stats" && <StatsTab />}
-
-      {/* Modals */}
       {modal?.type === "workout" && <WorkoutModal data={modal.data} />}
-      {modal?.type === "newCycle" && <NewCycleModal />}
-      {modal?.type === "newDraft" && <NewCycleModal draft />}
-      {modal?.type === "editCycle" && <NewCycleModal existing={modal.data} draft={modal.data?.status === undefined} />}
-      {modal?.type === "viewDraft" && <NewCycleModal draft existing={modal.data} />}
+      {modal?.type === "dayDetail" && <DayDetailModal data={modal.data} />}
+      {modal?.type === "newCycle" && <CycleEditorModal />}
+      {modal?.type === "newDraft" && <CycleEditorModal draft />}
+      {modal?.type === "editCycle" && <CycleEditorModal existing={modal.data} draft={modal.draft} />}
       {modal?.type === "pastCycle" && <PastCycleModal data={modal.data} />}
     </div>
   );
